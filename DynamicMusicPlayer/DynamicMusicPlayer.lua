@@ -2,42 +2,26 @@
 CSPBuild = ac.getPatchVersionCode()
 math.randomseed(os.preciseClock())
 
-local isDebug = false
-local _debugLines = {}
-local _debugLogPath = __dirname .. '/debug.log'
-local function dbg(msg)
-    if not isDebug then return end
-    table.insert(_debugLines, string.format("[%.2f] %s", os.preciseClock(), msg))
-end
-local function flushDebugLog()
-    if not isDebug then return end
-    io.save(_debugLogPath, table.concat(_debugLines, '\n') .. '\n')
-end
-
 -- Use ac.AudioEvent.fromFile (FMOD-based, works on Linux/Proton) instead of
 -- ui.MediaPlayer (MMF-based, broken on Linux). Wrapper keeps the same interface.
-local function safeMediaPlayer(path)
-    local ok, ev = pcall(ac.AudioEvent.fromFile, {filename = path, use3D = false, loop = false}, false)
-    if not ok or not ev or not ev:isValid() then
-        if isDebug then dbg("safeMediaPlayer FAILED for: " .. tostring(path)) end
-        return nil
-    end
-    if isDebug then dbg("safeMediaPlayer OK: " .. tostring(path)) end
+local function audioPlayer(path)
+    local ok, audioEvent = pcall(ac.AudioEvent.fromFile, {filename = path, use3D = false, loop = false}, false)
     local knownDuration = 0
     local lastPosition = 0
     local finished = false
     return {
-        _ev = ev,
-        play          = function(self) self._ev:start() end,
-        setVolume     = function(self, v) self._ev.volume = math.max(0, v) end,
-        volume        = function(self) return self._ev.volume end,
+        _audioEvent = audioEvent,
+        play          = function(self) self._audioEvent:start() end,
+        setVolume     = function(self, v) self._audioEvent.volume = math.max(0, v) end,
+        volume        = function(self) return self._audioEvent.volume end,
         duration      = function(self)
-            local d = self._ev:getDuration()
-            if d > 0 then knownDuration = d end
+            local duration = self._audioEvent:getDuration()
+            if duration > 0 then 
+                knownDuration = duration end
             return knownDuration
         end,
         currentTime   = function(self)
-            local pos = self._ev:getTimelinePosition()
+            local pos = self._audioEvent:getTimelinePosition()
             if finished then return knownDuration end
             -- FMOD resets position to 0 when a non-looping event finishes.
             -- Detect this by checking if position jumped back to 0 after being well into the track.
@@ -48,12 +32,12 @@ local function safeMediaPlayer(path)
             lastPosition = pos
             return pos
         end,
-        isValid       = function(self) return self._ev:isValid() end,
+        isValid       = function(self) return self._audioEvent:isValid() end,
         setCurrentTime = function(self, t)
-            if t >= self._ev:getDuration() then
-                self._ev:stop()
+            if t >= self._audioEvent:getDuration() then
+                self._audioEvent:stop()
             else
-                self._ev:seek(t)
+                self._audioEvent:seek(t)
             end
         end,
     }
@@ -512,15 +496,6 @@ function updateRaceStatusData()
         TargetVolume = -10
     else
         TargetVolume = MaxVolume
-    end
-    if isDebug and CurrentTrack and UpdateCounter % 300 == 0 then
-        local ct = CurrentTrack:currentTime()
-        local dur = CurrentTrack:duration()
-        local valid = CurrentTrack:isValid()
-        local fadeCondition = ct > dur - 2
-        local loadCondition = ct >= dur - 1
-        dbg(string.format("TRACK STATE | isValid=%s | currentTime=%.3f | duration=%.3f | fadeCondition=%s | loadCondition=%s | TargetVolume=%.3f",
-            tostring(valid), ct, dur, tostring(fadeCondition), tostring(loadCondition), TargetVolume))
     end
 
     if MusicType and ( -- boost fade-in music 
@@ -1197,14 +1172,6 @@ function script.update(dt)
         updateRaceStatusData()
     end
 
-    if isDebug and UpdateCounter%60 == 1 and CurrentTrack then
-        local ct = CurrentTrack:currentTime()
-        local dur = CurrentTrack:duration()
-        local valid = CurrentTrack:isValid()
-        dbg(string.format("LOAD CHECK | isValid=%s | currentTime=%.3f | duration=%.3f | condition(ct>=dur-1)=%s",
-            tostring(valid), ct, dur, tostring(ct >= dur - 1)))
-    end
-
     if (StartMusic == true and Sim.timeToSessionStart < 0) or
     UpdateCounter%60 == 1 and
     EnableMusic and
@@ -1219,7 +1186,7 @@ function script.update(dt)
             CurrentVolume = 0
         end
         if #MusicQueue == 0 or (PlayerFinished and (not PlayedFinishTrack) and FinishMusic[1]) then
-            CurrentTrack = safeMediaPlayer(getNewTrack())
+            CurrentTrack = audioPlayer(getNewTrack())
             DontSkipCurrentTrack = false
         else
             PlaySelectedTrack(MusicQueue[1])
@@ -1269,7 +1236,7 @@ function script.update(dt)
                 if EnableMusic and SkipAttempts > 20 and (Session.type ~= 3 or (Session.type == 3 and (Sim.timeToSessionStart < 0 or Sim.timeToSessionStart >= 60000))) and HitValue == 0 then
                     updateRaceStatusData()
                     if #MusicQueue == 0 or (PlayerFinished and (not PlayedFinishTrack) and FinishMusic[1])  then
-                        CurrentTrack = safeMediaPlayer(getNewTrack())
+                        CurrentTrack = audioPlayer(getNewTrack())
                         DontSkipCurrentTrack = false
                     else
                         PlaySelectedTrack(MusicQueue[1])
@@ -1314,10 +1281,6 @@ function script.update(dt)
 
     --runGC()
     --printGC()
-
-    if isDebug and UpdateCounter%60 == 0 then
-        flushDebugLog()
-    end
 end
 
 function TabsFunction()
@@ -1333,7 +1296,7 @@ end
 function PlaySelectedTrack(selectedTrack)
     CurrentTrack:setVolume(0)
     CurrentTrack:setCurrentTime(CurrentTrack:duration())
-    CurrentTrack = safeMediaPlayer(selectedTrack[2])
+    CurrentTrack = audioPlayer(selectedTrack[2])
     CurrentVolume = TargetVolume*TargetVolumeMultiplier
     CurrentTrack:setVolume(CurrentVolume)
     CurrentTrack:play()
