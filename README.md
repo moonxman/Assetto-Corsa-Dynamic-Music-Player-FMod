@@ -33,7 +33,8 @@ Features of this app:
 - Dynamic volume adjustments, reducing volume of the music when you're driving slow, crashing, have opponents nearby or when yellow and blue flags pop up,
 - Configurability via ingame Settings app. You can make it as complex or as simple as you like,
 - On-screen widget showing you currently playing track.
+- works on linux
 
 Known Issues:
-- If by any chance you got your Assetto Corsa to work on Linux, or some debloated version of Windows that is missing Microsoft applications, this app won't work there. It depends on Windows Media Player to exist on your system since that's what CSP Media API depends on. 
+- ~~If by any chance you got your Assetto Corsa to work on Linux, or some debloated version of Windows that is missing Microsoft applications, this app won't work there. It depends on Windows Media Player to exist on your system since that's what CSP Media API depends on.~~
 - If you find any other bugs, please report them in GitHub Issues Page
