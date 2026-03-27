@@ -2,6 +2,47 @@
 CSPBuild = ac.getPatchVersionCode()
 math.randomseed(os.preciseClock())
 
+-- Use ac.AudioEvent.fromFile (FMOD-based, works on Linux/Proton) instead of
+-- ui.MediaPlayer (MMF-based, broken on Linux). Wrapper keeps the same interface.
+local function audioPlayer(path)
+    local ok, audioEvent = pcall(ac.AudioEvent.fromFile, {filename = path, use3D = false, loop = false}, false)
+    local knownDuration = 0
+    local lastPosition = 0
+    local finished = false
+    return {
+        _audioEvent = audioEvent,
+        play          = function(self) self._audioEvent:start() end,
+        setVolume     = function(self, v) self._audioEvent.volume = math.max(0, v) end,
+        volume        = function(self) return self._audioEvent.volume end,
+        duration      = function(self)
+            local duration = self._audioEvent:getDuration()
+            if duration > 0 then 
+                knownDuration = duration end
+            return knownDuration
+        end,
+        currentTime   = function(self)
+            local pos = self._audioEvent:getTimelinePosition()
+            if finished then return knownDuration end
+            -- FMOD resets position to 0 when a non-looping event finishes.
+            -- Detect this by checking if position jumped back to 0 after being well into the track.
+            if pos == 0 and lastPosition > 1.0 then
+                finished = true
+                return knownDuration
+            end
+            lastPosition = pos
+            return pos
+        end,
+        isValid       = function(self) return self._audioEvent:isValid() end,
+        setCurrentTime = function(self, t)
+            if t >= self._audioEvent:getDuration() then
+                self._audioEvent:stop()
+            else
+                self._audioEvent:seek(t)
+            end
+        end,
+    }
+end
+
 function table.shuffle(sequence, firstIndex) -- because i'm not sure if it exists.
     firstIndex = firstIndex or 1
     for i = firstIndex, #sequence - 2 + firstIndex do
@@ -617,7 +658,7 @@ local function readTrackTags(filename)
         end
     end
 
-    ac.log("trimmedFilename", "'" .. trimmedFilename .. "'")
+    -- ac.log("trimmedFilename", "'" .. trimmedFilename .. "'")
 
     ------------------------------------------------------------------------------------
     -- Allow to play:
@@ -1013,7 +1054,7 @@ function script.update(dt)
             CurrentVolume = 0
         end
         if #MusicQueue == 0 or (PlayerFinished and (not PlayedFinishTrack) and FinishMusic[1]) then
-            CurrentTrack = ui.MediaPlayer(getNewTrack())
+            CurrentTrack = audioPlayer(getNewTrack())
             DontSkipCurrentTrack = false
         else
             PlaySelectedTrack(MusicQueue[1])
@@ -1063,7 +1104,7 @@ function script.update(dt)
                 if EnableMusic and SkipAttempts > 20 and (Session.type ~= 3 or (Session.type == 3 and (Sim.timeToSessionStart < 0 or Sim.timeToSessionStart >= 60000))) and HitValue == 0 then
                     updateRaceStatusData()
                     if #MusicQueue == 0 or (PlayerFinished and (not PlayedFinishTrack) and FinishMusic[1])  then
-                        CurrentTrack = ui.MediaPlayer(getNewTrack())
+                        CurrentTrack = audioPlayer(getNewTrack())
                         DontSkipCurrentTrack = false
                     else
                         PlaySelectedTrack(MusicQueue[1])
@@ -1123,7 +1164,7 @@ end
 function PlaySelectedTrack(selectedTrack)
     CurrentTrack:setVolume(0)
     CurrentTrack:setCurrentTime(CurrentTrack:duration())
-    CurrentTrack = ui.MediaPlayer(selectedTrack[2])
+    CurrentTrack = audioPlayer(selectedTrack[2])
     CurrentVolume = TargetVolume*TargetVolumeMultiplier
     CurrentTrack:setVolume(CurrentVolume)
     CurrentTrack:play()
